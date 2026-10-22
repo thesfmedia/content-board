@@ -78,8 +78,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid currentColor;opacity
 .ico-ok{color:var(--ok)} .ico-todo{color:var(--warn)}
 
 /* boards sidebar */
-.side{position:fixed;z-index:9;left:max(12px,env(safe-area-inset-left,0px));top:calc(70px + env(safe-area-inset-top,0px));
-  width:252px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:10px 8px;display:flex;flex-direction:column;gap:2px;max-height:calc(100% - 100px);overflow:auto}
+.side{position:fixed;z-index:9;left:max(12px,env(safe-area-inset-left,0px));top:calc(124px + env(safe-area-inset-top,0px));
+  width:252px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:10px 8px;display:flex;flex-direction:column;gap:2px;max-height:calc(100% - 200px);overflow:auto}
 .side h3{margin:2px 8px 6px;font-size:13px;font-weight:500;color:var(--muted)}
 .board{display:flex;align-items:center;gap:10px;border:0;background:transparent;border-radius:9px;padding:7px 8px;text-align:left;width:100%}
 .board:hover{background:var(--surface-2)}
@@ -88,6 +88,15 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid currentColor;opacity
 .board .nm{flex:1;font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .board .n{font-family:var(--mono);font-size:12px;color:var(--muted)}
 .newboard{color:var(--muted);font-weight:500;font-size:13px}
+.brow{position:relative;display:flex;align-items:center}
+.brow .board{padding-right:36px}
+.brow .more{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--muted);
+  width:26px;height:26px;border-radius:6px;display:grid;place-items:center}
+.brow .more:hover{background:var(--line);color:var(--ink)}
+.brow:has(.more) .board .n{margin-right:2px}
+.danger-zone{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:8px}
+.btn.danger{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.btn.danger.armed{background:var(--accent);color:#fff;border-color:var(--accent)}
 
 /* panels on canvas */
 .phead{position:absolute;display:flex;align-items:center;gap:8px;white-space:nowrap}
@@ -272,6 +281,22 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid currentColor;opacity
   </form>
 </div>
 
+<!-- Board settings -->
+<div class="modal" id="boardEditDlg" hidden>
+  <form class="dlg" id="boardEditForm" role="dialog" aria-modal="true" aria-labelledby="boardEditTitle">
+    <h2 id="boardEditTitle">Board settings</h2>
+    <label class="field">Name<input id="boardEditName" type="text" required maxlength="60"></label>
+    <p class="note" id="boardEditLink"></p>
+    <p class="err" id="boardEditErr" hidden></p>
+    <div class="row"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn primary">Save name</button></div>
+    <div class="danger-zone">
+      <strong>Delete this board</strong>
+      <p class="note" id="boardDelNote"></p>
+      <div><button type="button" class="btn danger" id="boardDelBtn">Delete board</button></div>
+    </div>
+  </form>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -365,8 +390,9 @@ function renderChrome(){
     +`<span class="sep"></span><button class="tg" id="shareBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Share</button>`;
   // boards
   $('#side').hidden=!state.side;
-  $('#boards').innerHTML=state.boards.map((x,i)=>`<button class="board" data-b="${x.id}" aria-current="${x.id===state.board}">
-    <span class="av" style="background:${AV[i%AV.length]}">${esc((x.name[0]||'?').toUpperCase())}</span><span class="nm">${esc(x.name)}</span><span class="n">${state.counts[x.id]||0}</span></button>`).join('');
+  $('#boards').innerHTML=state.boards.map((x,i)=>`<div class="brow"><button class="board" data-b="${x.id}" aria-current="${x.id===state.board}">
+    <span class="av" style="background:${AV[i%AV.length]}">${esc((x.name[0]||'?').toUpperCase())}</span><span class="nm">${esc(x.name)}</span><span class="n">${state.counts[x.id]||0}</span></button>
+    ${state.editor?`<button class="more" data-edit="${x.id}" aria-label="Rename or delete ${esc(x.name)}" title="Rename or delete"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>`:''}</div>`).join('');
   $('#newBoardBtn').hidden=!state.editor;
   $('#addBtn').hidden=!state.editor||!state.board;
   $('#authBtn').textContent=state.editor?'Sign out':'Sign in';
@@ -377,7 +403,9 @@ $('#tagbar').addEventListener('click',async e=>{
     try{await navigator.clipboard.writeText(link);toast('Link copied')}catch(_){toast(link,6000)}return}
   if(e.target.closest('#manageTags')){openTags();return}
   const b=e.target.closest('[data-t]');if(!b)return;state.tagFilter=state.tagFilter===b.dataset.t?null:b.dataset.t;render();fit()});
-$('#boards').addEventListener('click',e=>{const b=e.target.closest('[data-b]');if(b&&b.dataset.b!==state.board)switchBoard(b.dataset.b)});
+$('#boards').addEventListener('click',e=>{
+  const ed=e.target.closest('[data-edit]');if(ed){openBoardEdit(ed.dataset.edit);return}
+  const b=e.target.closest('[data-b]');if(b&&b.dataset.b!==state.board)switchBoard(b.dataset.b)});
 $('#sideBtn').onclick=()=>{state.side=!state.side;renderChrome()};
 $('#q').addEventListener('input',e=>{state.q=e.target.value.trim().toLowerCase();render()});
 
@@ -398,7 +426,7 @@ function renderBoard(){
   let x=0,maxH=0;
   for(const k of kinds){
     const P=PANEL[k];const list=sorted(set.filter(i=>i.format===k),k);
-    if(!list.length&&set.length&&kinds.length>1)continue;
+    if(!list.length)continue;
     const cols=Math.max(1,Math.min(P.max,list.length||1));
     const width=PAD*2+cols*P.col+(cols-1)*GAP;
     const colH=Array(cols).fill(0);
@@ -504,7 +532,7 @@ const stage=$('#stage'),world=$('#world');
 function applyT(){world.style.transform=`translate(${state.x}px,${state.y}px) scale(${state.scale})`;$('#zPct').textContent=Math.round(state.scale*100)+'%'}
 function zoomAt(f,cx,cy){const ns=Math.min(3,Math.max(.1,state.scale*f)),k=ns/state.scale;state.x=cx-(cx-state.x)*k;state.y=cy-(cy-state.y)*k;state.scale=ns;applyT()}
 function fit(){
-  const top=innerWidth<900?165:130,left=state.side&&innerWidth>=900?290:24,bottom=70,right=24;
+  const top=innerWidth<900?175:140,left=state.side&&innerWidth>=900?290:24,bottom=70,right=24;
   if(!bounds||!bounds.w){state.x=left;state.y=top;state.scale=1;applyT();return}
   const aw=innerWidth-left-right,ah=innerHeight-top-bottom;
   state.scale=Math.min(1.3,Math.max(.1,Math.min(aw/bounds.w,ah/bounds.h)));
@@ -553,6 +581,41 @@ $('#boardForm').addEventListener('submit',async e=>{e.preventDefault();
   const {data,error}=await sb.from('boards').insert({name,slug}).select().single();
   if(error){$('#boardErr').textContent='Could not create the board: '+error.message;$('#boardErr').hidden=false;return}
   state.boards.push(data);$('#boardDlg').hidden=true;await switchBoard(data.id);toast('Board created')});
+
+/* board settings: rename + delete */
+let editId=null,delArmed=false;
+function openBoardEdit(id){
+  const b=state.boards.find(x=>x.id===id);if(!b||!state.editor)return;
+  editId=id;delArmed=false;
+  $('#boardEditName').value=b.name;$('#boardEditErr').hidden=true;
+  $('#boardEditLink').textContent='Share link: '+location.origin+location.pathname+'?board='+b.slug;
+  const n=state.counts[id]||0;
+  $('#boardDelNote').textContent=n?`This removes the board and its ${n} item${n===1?'':'s'}, including uploaded video files. You can't undo this.`:'This board is empty. Deleting it removes it from the sidebar.';
+  renderDelBtn();$('#boardEditDlg').hidden=false;setTimeout(()=>$('#boardEditName').focus(),0);
+}
+function renderDelBtn(){const b=$('#boardDelBtn');b.classList.toggle('armed',delArmed);b.textContent=delArmed?'Yes, delete it permanently':'Delete board'}
+$('#boardEditForm').addEventListener('submit',async e=>{e.preventDefault();
+  const name=$('#boardEditName').value.trim();if(!name)return;
+  const {error}=await sb.from('boards').update({name}).eq('id',editId);
+  if(error){$('#boardEditErr').textContent='Could not rename: '+error.message;$('#boardEditErr').hidden=false;return}
+  state.boards.find(x=>x.id===editId).name=name;$('#boardEditDlg').hidden=true;render();toast('Board renamed')});
+$('#boardDelBtn').addEventListener('click',async()=>{
+  if(!delArmed){delArmed=true;renderDelBtn();return}
+  const id=editId,b=state.boards.find(x=>x.id===id);
+  $('#boardDelBtn').disabled=true;$('#boardDelBtn').textContent='Deleting…';
+  const files=await sb.from('items').select('storage_path').eq('board_id',id);
+  const paths=(files.data||[]).map(r=>r.storage_path).filter(Boolean);
+  const {error}=await sb.from('boards').delete().eq('id',id);
+  $('#boardDelBtn').disabled=false;
+  if(error){$('#boardEditErr').textContent='Could not delete: '+error.message;$('#boardEditErr').hidden=false;delArmed=false;renderDelBtn();return}
+  for(let i=0;i<paths.length;i+=100)await sb.storage.from(BUCKET).remove(paths.slice(i,i+100));
+  state.boards=state.boards.filter(x=>x.id!==id);delete state.counts[id];
+  $('#boardEditDlg').hidden=true;toast(`Deleted "${b.name}"`);
+  if(state.board===id){
+    if(state.boards.length)await switchBoard(state.boards[0].id);
+    else{state.board=null;state.items=[];history.replaceState(null,'',location.pathname);render();fit()}
+  }else render();
+});
 
 /* tags */
 let swatch=PALETTE[0],tagConfirm=null;
