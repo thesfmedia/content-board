@@ -241,7 +241,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid currentColor;opacity
     </div>
     <div id="mLink" class="stack" hidden>
       <label class="field">Link<input id="linkUrl" type="url" placeholder="https://youtube.com/shorts/…"></label>
-      <label class="field">Title<input id="linkTitle" type="text" placeholder="What makes this one good?"></label>
+      <label class="field">Title<input id="linkTitle" type="text" placeholder="Leave blank to use the video's own title"></label>
+      <p class="note">Faster: copy any link, close this, and press ⌘V (Ctrl+V on Windows) on the board.</p>
     </div>
     <div class="field">Status<div class="chips" id="addStatus"></div></div>
     <div class="field">Tags<div class="chips" id="addTags"></div></div>
@@ -716,12 +717,46 @@ $('#confirmAdd').onclick=async()=>{
   let u=$('#linkUrl').value.trim();if(!u){err.textContent='Paste a link to save.';err.hidden=false;return}
   if(!/^https?:\/\//i.test(u))u='https://'+u;
   try{new URL(u)}catch(_){err.textContent="That link doesn't look right. Check it starts with https://";err.hidden=false;return}
-  const row={board_id:state.board,kind:'link',url:u,title:$('#linkTitle').value.trim()||platform(u)+' link',format:linkFormat(u),status:addStatus,tags,hue:Math.floor(Math.random()*360)};
+  const row={board_id:state.board,kind:'link',url:u,title:$('#linkTitle').value.trim()||await fetchTitle(u)||platform(u)+' link',format:linkFormat(u),status:addStatus,tags,hue:Math.floor(Math.random()*360)};
   const {data,error}=await sb.from('items').insert(row).select().single();
   if(error){err.textContent='Could not save: '+error.message;err.hidden=false;return}
   state.items.unshift(fromRow(data));state.counts[state.board]=state.items.length;$('#addDlg').hidden=true;render();fit();
   toast('Saved to '+(row.format==='short'?'Short-form':'Long-form'));
 };
+
+/* paste links (⌘V / Ctrl+V) anywhere on the board */
+async function fetchTitle(u){
+  const tries=[];
+  if(ytId(u))tries.push('https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(u));
+  if(/tiktok\.com/.test(u))tries.push('https://www.tiktok.com/oembed?url='+encodeURIComponent(u));
+  tries.push('https://noembed.com/embed?url='+encodeURIComponent(u));
+  for(const t of tries){try{const r=await fetch(t);if(!r.ok)continue;const j=await r.json();if(j&&j.title)return String(j.title).slice(0,200)}catch(_){}}
+  return null;
+}
+async function saveLinks(urls){
+  let saved=0;const failed=[];
+  for(const [n,u] of urls.entries()){
+    toast(urls.length>1?`Saving link ${n+1} of ${urls.length}…`:'Saving link…',0);
+    const title=await fetchTitle(u)||platform(u)+' link';
+    const row={board_id:state.board,kind:'link',url:u,title,format:linkFormat(u),status:null,tags:[],hue:Math.floor(Math.random()*360)};
+    const {data,error}=await sb.from('items').insert(row).select().single();
+    if(error){failed.push(error.message);continue}
+    state.items.unshift(fromRow(data));saved++;
+  }
+  state.counts[state.board]=state.items.length;render();fit();
+  toast(failed.length?`Saved ${saved}. Couldn't save ${failed.length}: ${failed[0]}`:saved===1?`Saved to ${state.items[0].format==='short'?'Short-form':'Long-form'}`:`Saved ${saved} links`,failed.length?6000:2200);
+}
+addEventListener('paste',e=>{
+  if(!state.editor||!state.board)return;
+  const el=document.activeElement;if(el&&/INPUT|TEXTAREA|SELECT/.test(el.tagName))return;
+  if([...document.querySelectorAll('.modal')].some(m=>!m.hidden))return;
+  const files=[...(e.clipboardData?.files||[])].filter(f=>/^(video|image)\//.test(f.type));
+  if(files.length){e.preventDefault();addFiles(files,null,[]);return}
+  const text=e.clipboardData?.getData('text')||'';
+  const urls=[...new Set((text.match(/https?:\/\/[^\s<>"']+/gi)||[]).map(u=>u.replace(/[),.;]+$/,'')))];
+  if(!urls.length){toast('Copy a video link first, then press ⌘V to save it here.');return}
+  e.preventDefault();saveLinks(urls);
+});
 
 /* drop anywhere */
 let depth=0;
