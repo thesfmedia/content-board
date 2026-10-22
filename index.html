@@ -107,6 +107,9 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid currentColor;opacity
 .tile{position:absolute;user-select:none}
 .thumb{position:relative;overflow:hidden;background:#0d0f12;border-radius:3px}
 .thumb video,.thumb img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.thumb iframe{position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none;background:#000}
+.thumb.live iframe,.thumb.live video{pointer-events:auto}
+.tile.tall-embed .thumb iframe{height:180%;top:-40%}
 .tile.sel .thumb{outline:3px solid var(--focus);outline-offset:2px}
 .dur{position:absolute;right:5px;bottom:5px;font-family:var(--mono);font-size:10px;background:rgb(0 0 0/.65);color:#fff;padding:0 4px;border-radius:3px}
 .src{position:absolute;right:5px;top:5px;font-size:10px;background:rgb(0 0 0/.55);color:#fff;padding:0 5px;border-radius:3px}
@@ -325,7 +328,18 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const slugify=s=>s.toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g,'').trim().replace(/[\s_]+/g,'-').replace(/-+/g,'-').slice(0,50)||'board';
 function toast(t,ms=2200){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(toast.t);if(ms)toast.t=setTimeout(()=>el.hidden=true,ms)}
 const linkFormat=u=>/shorts\/|tiktok\.com|\/reels?\/|instagram\.com\/p\//i.test(u)?'short':'long';
-function ytId(u){const m=String(u).match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/);return m?m[1]:null}
+function ytId(u){const m=String(u).match(/(?:youtu\.be\/|v=|shorts\/|embed\/|live\/)([\w-]{11})/);return m?m[1]:null}
+function ttId(u){const m=String(u).match(/tiktok\.com\/.*\/video\/(\d+)/);return m?m[1]:null}
+// Embed URL for a saved link. sound=false: muted, looping preview for hover. sound=true: full player with controls.
+function embedUrl(u,sound){
+  const y=ytId(u);
+  if(y){const q=sound?'autoplay=1&controls=1&rel=0&playsinline=1':`autoplay=1&mute=1&controls=0&loop=1&playlist=${y}&modestbranding=1&rel=0&playsinline=1&disablekb=1&iv_load_policy=3`;
+    return `https://www.youtube-nocookie.com/embed/${y}?${q}`}
+  const t=ttId(u);
+  if(t)return `https://www.tiktok.com/player/v1/${t}?autoplay=1&loop=1&music_info=0&description=0&rel=0${sound?'':'&controls=0&progress_bar=0&play_button=0&volume_control=0&fullscreen_button=0&mute=1&muted=1'}`;
+  return null}
+let livePreview=null;
+function stopPreview(){if(livePreview){const f=livePreview.querySelector('.thumb:not(.live) iframe');if(f)f.remove();livePreview=null}}
 const platform=u=>{const h=host(u);return /youtu/.test(h)?'YouTube':/tiktok/.test(h)?'TikTok':/instagram/.test(h)?'Instagram':/vimeo/.test(h)?'Vimeo':h};
 function probe(file){return new Promise(res=>{const u=URL.createObjectURL(file);
   if(file.type.startsWith('image/')){const im=new Image();im.onload=()=>{res({w:im.naturalWidth,h:im.naturalHeight,dur:null});URL.revokeObjectURL(u)};im.onerror=()=>res({w:16,h:9});im.src=u;return}
@@ -463,6 +477,16 @@ function tile(it,p,cw){
     <div class="cap"><span>${esc(it.title)}</span>${tagDots}</div>`;
   const v=d.querySelector('video');
   if(v){d.addEventListener('pointerenter',()=>v.play().catch(()=>{}));d.addEventListener('pointerleave',()=>{if(!v.controls)v.pause()})}
+  if(it.kind==='link'&&embedUrl(it.url,false)){
+    let timer;
+    d.addEventListener('pointerenter',e=>{if(e.pointerType==='touch')return;timer=setTimeout(()=>{
+      const th=d.querySelector('.thumb');if(th.classList.contains('live')||th.querySelector('iframe'))return;
+      stopPreview();
+      if(it.format==='short'&&ytId(it.url)&&!/shorts\//.test(it.url))d.classList.add('tall-embed');
+      const f=document.createElement('iframe');f.src=embedUrl(it.url,false);f.allow='autoplay; encrypted-media';f.loading='eager';f.tabIndex=-1;f.title='Preview';
+      th.appendChild(f);livePreview=d},250)});
+    d.addEventListener('pointerleave',()=>{clearTimeout(timer);if(livePreview===d)stopPreview()});
+  }
   return d;
 }
 $('#world').addEventListener('change',e=>{const s=e.target.closest('select[data-sort]');if(s){state.sort[s.dataset.sort]=s.value;render()}});
@@ -481,7 +505,7 @@ function renderSel(){
   const sel=state.items.filter(i=>state.sel.has(i.id));const one=n===1?sel[0]:null;if(!sel.length){bar.hidden=true;return}
   let h=`<span class="t">${one?esc(one.title||'Untitled'):n+' selected'}</span>`;
   if(one&&one.kind==='link')h+=`<a href="${esc(one.url)}" target="_blank" rel="noopener">Open on ${esc(platform(one.url))} ↗</a>`;
-  if(one&&one.kind==='video')h+=`<button data-act="play">Play with sound</button>`;
+  if(one&&(one.kind==='video'||(one.kind==='link'&&embedUrl(one.url,true))))h+=`<button data-act="play">Play with sound</button>`;
   if(one&&one.src)h+=`<a href="${esc(one.src)}" target="_blank" rel="noopener">Open file ↗</a>`;
   if(state.editor){
     h+='<span class="vsep"></span>';
@@ -502,7 +526,14 @@ $('#selbar').addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b)return;const ids=[...state.sel];
   const sel=state.items.filter(i=>state.sel.has(i.id));
   if(b.dataset.act==='clear'){state.sel.clear();render();return}
-  if(b.dataset.act==='play'){const v=document.querySelector(`.tile[data-id="${ids[0]}"] video`);if(v){v.muted=false;v.controls=true;v.style.pointerEvents='auto';v.play().catch(()=>{})}return}
+  if(b.dataset.act==='play'){const tileEl=document.querySelector(`.tile[data-id="${ids[0]}"]`);if(!tileEl)return;const th=tileEl.querySelector('.thumb');
+    const v=th.querySelector('video');
+    if(v){v.muted=false;v.controls=true;th.classList.add('live');v.play().catch(()=>{});return}
+    const it=state.items.find(i=>i.id===ids[0]);const url=it&&embedUrl(it.url,true);if(!url)return;
+    if(livePreview===tileEl)livePreview=null;
+    th.querySelectorAll('iframe').forEach(f=>f.remove());
+    const f=document.createElement('iframe');f.src=url;f.allow='autoplay; encrypted-media; fullscreen; picture-in-picture';f.allowFullscreen=true;f.title=it.title||'Video';
+    th.classList.add('live');th.appendChild(f);return}
   if(!state.editor)return;
   if(b.dataset.status){const k=b.dataset.status;const val=sel.every(i=>i.status===k)?null:k;
     if(await patch(ids,{status:val},i=>i.status=val))render();return}
@@ -544,7 +575,7 @@ stage.addEventListener('wheel',e=>{e.preventDefault();
   if(e.ctrlKey||e.metaKey)zoomAt(Math.exp(-e.deltaY*.01),e.clientX,e.clientY);else{state.x-=e.deltaX;state.y-=e.deltaY;applyT()}},{passive:false});
 const ptrs=new Map();let drag=null,pinch=null;
 stage.addEventListener('pointerdown',e=>{
-  if(e.target.closest('select,button,a,video[controls]'))return;
+  if(e.target.closest('select,button,a,video[controls],.thumb.live'))return;
   ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});stage.setPointerCapture(e.pointerId);
   if(ptrs.size===2){const[a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y)};drag=null}
   else drag={sx:e.clientX,sy:e.clientY,ox:state.x,oy:state.y,moved:false,tile:e.target.closest('.tile'),shift:e.shiftKey};

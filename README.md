@@ -13,7 +13,7 @@ Setup takes about 15 minutes.
 
 1. Go to **supabase.com**, sign up, and click **New project**. Pick any name and password, and choose a region near you (Singapore or Mumbai works well from Pakistan).
 2. When the project is ready, open **SQL Editor → New query**. Paste everything from `setup.sql` and click **Run**.
-   - It is set up for `hasanat.ahmed.5656@gmail.com`. If you'll sign in with a different email, change it at the top of the file before running.
+   - It is set up for `nayfus783926@gmail.com`. If you'll sign in with a different email, change it at the top of the file before running.
 3. Open **Authentication → Users → Add user → Create new user**. Enter your email and a password, tick **Auto Confirm User**, then click **Create user**.
    - This is the only account that can edit.
 4. Open **Authentication → Sign In / Providers** and turn off **Allow new users to sign up**. Even if someone else signs up, they can't edit anything, but this keeps things tidy.

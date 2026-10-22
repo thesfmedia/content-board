@@ -4,7 +4,7 @@
 
 create or replace function public.is_board_owner() returns boolean
 language sql stable security invoker set search_path = '' as $$
-  select coalesce((select auth.jwt()) ->> 'email', '') = 'hasanat.ahmed.5656@gmail.com'
+  select coalesce((select auth.jwt()) ->> 'email', '') = 'nayfus783926@gmail.com'
 $$;
 
 create table if not exists public.boards (
